@@ -1,3 +1,4 @@
+#pragma once
 #include <spdlog/spdlog.h>
 #include <iostream>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -6,14 +7,21 @@
 #include <spdlog/async.h>
 
 
+namespace MicroChat {   
 #define MAX_SIZE_FILE 4 * 1024 * 1024
 #define MAX_NUM_FILE 50
 
 // mode - 运行模式： true-发布模式； false调试模式
 
-std::shared_ptr<spdlog::logger> g_default_logger;
-void init_logger(bool mode , const std::string& file , int32_t level)
+inline std::shared_ptr<spdlog::logger> g_default_logger;
+void init_logger(bool mode , const std::string& file  = "./default.log", int32_t level = spdlog::level::info)
 {
+    // 如果全局注册表已有 same-name logger，直接复用，避免重复创建或抛异常
+    auto existing = spdlog::get("default-logger");
+    if (existing) {
+        g_default_logger = existing;
+        return;
+    }
     if(mode == false) // 调试模式，默认在终端打印信息
     {
         g_default_logger = spdlog::stdout_color_mt("default-logger");
@@ -78,3 +86,4 @@ void shutdown_logger()
 
     std::cout << "日志系统已安全关闭" << std::endl;
 }
+} // namespace MicroChat
