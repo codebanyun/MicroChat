@@ -53,7 +53,7 @@ void init_logger(bool mode , const std::string& file  = "./default.log", int32_t
         // 发布模式建议：flush_on(warn/error) + 定时自动flush（避免日志堆积）
         g_default_logger->flush_on(spdlog::level::warn); // 警告及以上级别立即刷新（确保关键日志不丢失）
         // 配置每5秒自动刷新一次所有日志器的缓冲区
-        spdlog::flush_every(std::chrono::seconds(5));
+        // spdlog::flush_every(std::chrono::seconds(5));
         // 4. 配置日志格式
         g_default_logger->set_pattern("[%n][%Y-%m-%d %H:%M:%S][%t][%-8l]%v");
     }
@@ -66,13 +66,13 @@ void init_logger(bool mode , const std::string& file  = "./default.log", int32_t
 #define LOG_ERROR(format, ...) g_default_logger->error(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
 #define LOG_FATAL(format, ...) g_default_logger->critical(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
 
-// 日志关闭函数：程序退出前调用，确保资源释放和日志不丢失
+//日志关闭函数：程序退出前调用，确保资源释放和日志不丢失
 void shutdown_logger()
 {
     // 1. 先刷新所有未写入的日志（强制将缓冲区/队列中的日志刷到磁盘）
     if (g_default_logger)
     {
-        g_default_logger->flush(); // 主动刷新当前日志器
+        g_default_logger->flush(); 
     }
     // 2. 销毁所有日志器（释放文件句柄、日志器内存）
     spdlog::drop_all();
@@ -86,4 +86,16 @@ void shutdown_logger()
 
     std::cout << "日志系统已安全关闭" << std::endl;
 }
+// inline void shutdown_logger()
+// {
+//     if (g_default_logger)
+//     {
+//         try { g_default_logger->flush(); } catch(...) {}
+//         // 仅丢弃本模块创建的 logger（按 name），不影响其它 logger 或全局线程池
+//         try { spdlog::drop("default-logger"); } catch(...) {}
+//         g_default_logger.reset();
+//     }
+//     std::cout << "模块级日志器已安全关闭（未触及全局日志系统）" << std::endl;
+// }
+
 } // namespace MicroChat

@@ -46,7 +46,6 @@ public:
             try { keep_alive_->Cancel(); } catch(...) {}
             keep_alive_.reset();
         }
-        // 可选：如果想显式撤销租约，可调用 client_->revoke(lease_id_).get();
     }
 private:
     std::shared_ptr<etcd::Client> client_;
@@ -113,8 +112,8 @@ private:
                     put_callback_(ev.kv().key(), ev.kv().as_string());
                 }
             } else if (ev.event_type() == etcd::Event::EventType::DELETE_) {
-                LOG_DEBUG("下线服务：{}-{}", ev.prev_kv().key(), ev.prev_kv().as_string());
                 if (delete_callback_) delete_callback_(ev.prev_kv().key(), ev.prev_kv().as_string());
+                LOG_DEBUG("下线服务：{}-{}", ev.prev_kv().key(), ev.prev_kv().as_string());
             }
         }
     }
