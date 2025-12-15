@@ -14,7 +14,7 @@ namespace MicroChat {
         }
 
         std::string recognize(const std::string &speech_data,
-                              const std::string& err_msg,
+                              std::string& err_msg,
                               const std::string &format = "pcm",
                               int sample_rate = 16000) {
             Json::Value result = client_.recognize(speech_data, format, sample_rate, aip::null);
