@@ -59,12 +59,12 @@ void init_logger(bool mode , const std::string& file  = "./default.log", int32_t
     }
 }
 
-#define LOG_TRACE(format, ...) g_default_logger->trace(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_DEBUG(format, ...) g_default_logger->debug(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_INFO(format, ...) g_default_logger->info(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_WARN(format, ...) g_default_logger->warn(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_ERROR(format, ...) g_default_logger->error(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_FATAL(format, ...) g_default_logger->critical(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_TRACE(format, ...) MicroChat::g_default_logger->trace(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_DEBUG(format, ...) MicroChat::g_default_logger->debug(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_INFO(format, ...) MicroChat::g_default_logger->info(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_WARN(format, ...) MicroChat::g_default_logger->warn(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_ERROR(format, ...) MicroChat::g_default_logger->error(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_FATAL(format, ...) MicroChat::g_default_logger->critical(std::string("[{}:{}] ") + format, __FILE__, __LINE__, ##__VA_ARGS__)
 
 //日志关闭函数：程序退出前调用，确保资源释放和日志不丢失
 void shutdown_logger()
@@ -77,8 +77,7 @@ void shutdown_logger()
     // 2. 销毁所有日志器（释放文件句柄、日志器内存）
     spdlog::drop_all();
 
-    // 3. 关闭异步日志线程池（仅发布模式需要）
-    // spdlog::shutdown() 会自动触发 drop_all()
+    // 3. 关闭异步日志线程池
     spdlog::shutdown();
 
     // 4. 重置全局日志器指针
@@ -86,16 +85,4 @@ void shutdown_logger()
 
     std::cout << "日志系统已安全关闭" << std::endl;
 }
-// inline void shutdown_logger()
-// {
-//     if (g_default_logger)
-//     {
-//         try { g_default_logger->flush(); } catch(...) {}
-//         // 仅丢弃本模块创建的 logger（按 name），不影响其它 logger 或全局线程池
-//         try { spdlog::drop("default-logger"); } catch(...) {}
-//         g_default_logger.reset();
-//     }
-//     std::cout << "模块级日志器已安全关闭（未触及全局日志系统）" << std::endl;
-// }
-
 } // namespace MicroChat
