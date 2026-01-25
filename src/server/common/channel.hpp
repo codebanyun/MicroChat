@@ -49,11 +49,11 @@ public:
                     break;
                 }
             }
+            hosts_.erase(it);
             LOG_INFO("移除信道{}-{}成功", service_name_, host);
         } else {
             LOG_WARN("信道{}-{}不存在，移除失败", service_name_, host);
         }
-        hosts_.erase(it);
     }
     //获取当前服务的信道，采用轮转方式获取
     ChannelPtr get_channel() 

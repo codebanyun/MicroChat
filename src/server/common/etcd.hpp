@@ -88,6 +88,7 @@ public:
             }
         }
         //然后启动监听器，监听后续的变化
+        //true为递归监听
         watcher_ = std::make_shared<etcd::Watcher>(
             *client_, base_dir, 
             [this](const etcd::Response& resp){callback(resp);},
