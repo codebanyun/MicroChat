@@ -49,6 +49,14 @@ namespace MicroChat {
                 settings["analysis"] = analysis;
                 index_["settings"] = settings;
             }
+            /*
+            *@brief: 添加索引属性
+            *@param: key 属性名
+            *@param: type 属性类型 text/keyword/integer/date等,text类型支持分词搜索，keyword类型不分词
+            *@param: analyzer 分词器类型，默认使用ik_max_word分词器,只对text类型有效,standard表示不分词
+            *@param: enable 是否启用索引，默认启用索引，设置为false表示不启用索引
+            *@return: ESIndex引用，可用于链式调用
+            */
             ESIndex& appendproperty(const std::string &key, 
                                     const std::string& type = "text",
                                     const std::string &analyzer = "ik_max_word",
@@ -219,6 +227,7 @@ namespace MicroChat {
                 must_not_.append(terms);
                 return *this;
             }
+            //必须匹配的字段
             ESSearch& append_must_term(const std::string &key, const std::string &val) {
                 Json::Value field;
                 field[key] = val;

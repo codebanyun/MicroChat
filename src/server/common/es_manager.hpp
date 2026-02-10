@@ -1,6 +1,7 @@
 #pragma once
 #include "elasearch.hpp"
-#include "../odb/user.hxx"
+#include "user.hxx"
+#include "message.hxx"
 #include "spdlog.hpp"
 namespace MicroChat{
     class ESClientBuilder{
@@ -84,6 +85,79 @@ namespace MicroChat{
                 users.push_back(user);
             }
             return users;
+        }
+    private:
+        std::shared_ptr<elasticlient::Client> client_;
+    };
+    //ES管理Message相关内容
+    class ESMessageManager{
+    public:
+        ESMessageManager(const std::shared_ptr<elasticlient::Client> &client):client_(client){}
+        //创建消息索引
+        bool create_message_index(){
+            bool ret = ESIndex(client_, "message")
+                .appendproperty("message_id", "keyword", "standard", false)
+                .appendproperty("session_id", "keyword", "standard", false)
+                .appendproperty("user_id", "keyword", "standard", false)
+                .appendproperty("timestamp", "date", "", false)
+                .appendproperty("content")
+                .create();
+            return ret;
+        }
+        //添加消息
+        bool appendmessage(const Message &message){
+            bool ret = ESInsert(client_, "message")
+                .append("message_id", message.getMessageId())
+                .append("session_id", message.getSessionId())
+                .append("user_id", message.getUserId())
+                .append("timestamp", boost::posix_time::to_simple_string(message.getTimestamp()))
+                .append("content", message.getContent())
+                .insert(message.getMessageId());
+            if(!ret){
+                LOG_ERROR("向ES索引 message 添加消息信息失败！");
+                return false;
+            }
+            LOG_DEBUG("向ES索引 message 添加消息信息成功！");
+            return true;
+        }
+        //删除消息
+        bool deletemessage(const std::string &message_id){
+            bool ret = ESRemove(client_, "message").remove(message_id);
+            if(!ret){
+                LOG_ERROR("从ES索引 message 删除消息信息失败！");
+                return false;
+            }
+            LOG_DEBUG("从ES索引 message 删除消息信息成功！");
+            return true;
+        }
+        //搜索消息
+        std::vector<Message> search(const std::string &session_id, const std::string &key){
+            std::vector<Message> messages;
+            Json::Value result = ESSearch(client_, "message")
+                    .append_must_term("session_id", session_id)
+                    .append_must_match("content", key)
+                    .search();
+            if(result.isArray() == false){
+                LOG_ERROR("ES搜索消息结果格式错误！");
+                return messages;
+            }
+            if(result.size() == 0){
+                LOG_DEBUG("ES搜索消息无结果！");
+                return messages;
+            }
+            int sz = result.size();
+            LOG_DEBUG("ES搜索消息命中 {} 条结果！", sz);
+            for(int i = 0; i < sz; i++){
+                Json::Value source = result[i]["_source"];
+                Message message;
+                message.setMessageId(source["message_id"].asString());
+                message.setSessionId(source["session_id"].asString());
+                message.setUserId(source["user_id"].asString());
+                message.setTimestamp(boost::posix_time::time_from_string(source["timestamp"].asString()));
+                message.setContent(source["content"].asString());
+                messages.push_back(message);
+            }
+            return messages;
         }
     private:
         std::shared_ptr<elasticlient::Client> client_;
