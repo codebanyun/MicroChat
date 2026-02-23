@@ -67,7 +67,7 @@ namespace MicroChat {
             }
         }
         //获取某个会话的所有成员
-        std::vector<std::string> select_by_session(const std::string &session_id) {
+        std::vector<std::string> getMembers(const std::string &session_id) {
             std::vector<std::string> res;
             try {
                 odb::transaction t(db_->begin());
