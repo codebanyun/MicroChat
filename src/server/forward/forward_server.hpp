@@ -79,7 +79,7 @@ namespace MicroChat {
             msg_info.set_message_id(UUID());
             msg_info.set_timestamp(time(nullptr));
             //3. 查询会话成员列表，构造转发目标用户列表
-            auto members = mysql_chat_session_member_->select_by_session(chat_session_id);
+            auto members = mysql_chat_session_member_->getMembers(chat_session_id);
             if (members.empty()) {
                 err_response(request_id, "会话成员列表为空，无法转发消息");
                 LOG_WARN("会话成员列表为空，无法转发消息，会话ID：{}", chat_session_id);

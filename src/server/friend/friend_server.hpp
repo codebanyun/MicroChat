@@ -641,6 +641,8 @@ namespace MicroChat{
                 LOG_ERROR("Failed to create ServiceManager");
                 return false;
             }
+            service_manager_->add_service_name(user_service_name);
+            service_manager_->add_service_name(message_service_name);
             auto sm = service_manager_;
             auto put_cb = [sm](const std::string& instance, const std::string& addr) {
                 sm->on_service_online(instance, addr);

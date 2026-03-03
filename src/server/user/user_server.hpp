@@ -891,12 +891,7 @@ namespace MicroChat {
             int port,
             int db,
             bool keep_alive) {
-            sw::redis::ConnectionOptions connection_options;
-            connection_options.host = host;
-            connection_options.port = port;
-            connection_options.db = db;
-            connection_options.keep_alive = keep_alive;
-            redis_client_ = std::make_shared<sw::redis::Redis>(connection_options);
+            redis_client_ = RedisClientBuilder::build(host , port, db, keep_alive);
             return redis_client_ != nullptr;
         }
         //构造mysql客户端
@@ -943,6 +938,7 @@ namespace MicroChat {
                 LOG_ERROR("Failed to create ServiceManager");
                 return false;
             }
+            service_manager_ ->add_service_name(file_service_name_);
             auto sm = service_manager_;
             auto put_cb = [sm](const std::string& instance, const std::string& addr) {
                 sm->on_service_online(instance, addr);
