@@ -83,6 +83,19 @@ namespace MicroChat {
                             return httplib::Server::Handler(
                                     std::bind(method, this, std::placeholders::_1, std::placeholders::_2));
                     };
+                    http_server_.set_default_headers({
+                        {"Access-Control-Allow-Origin", "*"},
+                        {"Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS"},
+                        {"Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With"},
+                        {"Access-Control-Max-Age", "86400"}
+                    });
+                    http_server_.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+                        if (req.method == "OPTIONS") {
+                            res.status = 204;
+                            return httplib::Server::HandlerResponse::Handled;
+                        }
+                        return httplib::Server::HandlerResponse::Unhandled;
+                    });
                     http_server_.Post(GET_PHONE_VERIFY_CODE, bind_handler(&GatewayServer::GetPhoneVerifyCode));
                     http_server_.Post(USERNAME_REGISTER, bind_handler(&GatewayServer::UserRegister));
                     http_server_.Post(USERNAME_LOGIN, bind_handler(&GatewayServer::UsernameLogin));
@@ -1268,6 +1281,23 @@ namespace MicroChat {
                 response.set_request_id(transmit_response.request_id());
                 response.set_success(transmit_response.success());
                 response.set_errmsg(transmit_response.errmsg());
+                if (transmit_response.success()) {
+                    NotifyMessage notify;
+                    notify.set_notify_type(NotifyType::CHAT_MESSAGE_NOTIFY);
+                    notify.mutable_new_message_info()->mutable_message_info()->CopyFrom(transmit_response.message());
+                    std::string payload = notify.SerializeAsString();
+
+                    for (const auto &target_id : transmit_response.target_id_list()) {
+                        auto target_conn = connection_manager_->getConnection(target_id);
+                        if (!target_conn) {
+                            continue;
+                        }
+                        if(target_id == user_id) {
+                            continue; // 消息发送者不需要接收自己发送的消息通知
+                        }
+                        target_conn->send(payload, websocketpp::frame::opcode::value::binary);
+                    }
+                }
                 //4. 将消息服务的响应进行序列化，返回给http客户端
                 res.set_content(response.SerializeAsString(), "application/x-protobuf");
                 LOG_INFO("处理NewMessage请求完成，sender_user_id: {}, session_id: {}, success: {}", user_id, request.session_id(), response.success());
