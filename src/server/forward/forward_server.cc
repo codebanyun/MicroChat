@@ -62,7 +62,10 @@ int main(int argc , char* argv[]) {
     if(!factory.create_rabbitmq_client(
         FLAGS_mq_host,
         FLAGS_mq_user,
-        FLAGS_mq_pswd)){
+        FLAGS_mq_pswd,
+        FLAGS_mq_msg_exchange,
+        FLAGS_mq_msg_queue,
+        FLAGS_mq_msg_binding_key)){
         LOG_ERROR("Failed to create RabbitMQ client");
         return -1;
     }

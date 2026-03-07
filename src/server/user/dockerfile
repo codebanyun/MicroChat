@@ -1,0 +1,26 @@
+# 基础镜像
+FROM ubuntu:24.04 
+
+#工作目录
+WORKDIR /app/MicroChat
+
+# 统一创建目录 + 安装依赖
+RUN mkdir -p logs data config bin lib \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        netcat-traditional \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制文件
+COPY ./test/build/user_server ./bin/
+COPY ./depends ./lib/
+
+# 设置动态库查找路径
+ENV LD_LIBRARY_PATH=/app/MicroChat/lib:$LD_LIBRARY_PATH
+
+# 暴露端口
+EXPOSE 10003
+
+# 启动命令
+CMD ["/app/MicroChat/bin/user_server", "-flagfile=/app/MicroChat/config/user_server.conf"]

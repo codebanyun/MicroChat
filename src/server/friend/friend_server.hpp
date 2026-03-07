@@ -54,6 +54,12 @@ namespace MicroChat{
             const std::string &user_id = request->user_id();
             //3. 获取好友列表
             std::vector<std::string> friend_id_list = relation_table_->getFriends(user_id);
+            if (friend_id_list.empty()) {
+                response->set_request_id(rid);
+                response->set_success(true);
+                LOG_INFO("获取好友列表成功，user_id: {}, friend_count: 0", user_id);
+                return;
+            }
             //4. 从用户服务获取好友信息
             std::unordered_map<std::string, UserInfo> friend_info_map;
             std::unordered_set<std::string> friend_id_set(friend_id_list.begin(), friend_id_list.end());

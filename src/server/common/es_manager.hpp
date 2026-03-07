@@ -7,7 +7,8 @@ namespace MicroChat{
     class ESClientBuilder{
     public:
         static std::shared_ptr<elasticlient::Client> createClient(const std::vector<std::string> &hosts){
-            return std::make_shared<elasticlient::Client>(hosts);
+            constexpr std::int32_t kEsTimeoutMs = 30000;
+            return std::make_shared<elasticlient::Client>(hosts, kEsTimeoutMs);
         };
     };
     //ES管理User相关内容

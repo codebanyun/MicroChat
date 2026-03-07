@@ -173,7 +173,10 @@ namespace MicroChat {
             {
                 //创建etcd服务注册模块
                 auto etcd_registry = std::make_shared<MicroChat::EtcdClientRegistry>(etcd_addr);
-                etcd_registry->register_service(service_name, service_addr, 5);
+                if (!etcd_registry->register_service(service_name, service_addr, 30)) {
+                    LOG_ERROR("Failed to register file service to etcd: {} -> {}", service_name, service_addr);
+                    return nullptr;
+                }
                 //创建brpc服务器
                 auto brpc_server = std::make_shared<brpc::Server>();
                 //注册文件服务实现

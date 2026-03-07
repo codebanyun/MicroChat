@@ -192,9 +192,14 @@ namespace MicroChat {
         bool create_rabbitmq_client(
             const std::string &host,
             const std::string &user,
-            const std::string &passwd) {
+            const std::string &passwd,
+            const std::string &exchange,
+            const std::string &queue,
+            const std::string &binding_key) {
             rabbitmq_client_ = std::make_shared<RabbitMQClient>(user, passwd , host);
-            return rabbitmq_client_ != nullptr;
+            if (!rabbitmq_client_) return false;
+            rabbitmq_client_->declareComponents(exchange, queue, binding_key);
+            return true;
         }
         // 构造rpc服务器
         bool create_brpc_server(uint16_t port , int timeout , int thread_num,

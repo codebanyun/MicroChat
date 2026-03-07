@@ -66,7 +66,7 @@ namespace MicroChat {
             void make_etcd_registry(const std::string& etcd_host,
                                     const std::string& service_name,
                                     const std::string& service_host,
-                                    int ttl = 3) {
+                                    int ttl = 30) {
                 etcd_registry_ = std::make_shared<MicroChat::EtcdClientRegistry>(etcd_host);
                 if (!etcd_registry_->register_service(service_name, service_host, ttl)) {
                     LOG_ERROR("Failed to register service with etcd");

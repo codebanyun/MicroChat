@@ -74,8 +74,9 @@ namespace MicroChat {
                 typedef odb::query<FriendRequest> query;
                 typedef odb::result<FriendRequest> result;
                 result r(db_->query<FriendRequest>(query::requester_id == requester_id && query::receiver_id == receiver_id));
+                bool exists = !r.empty();
                 t.commit();
-                return !r.empty();
+                return exists;
             } catch(const std::exception& e) {
                 LOG_ERROR("Check pending friend request failed {}—{}: {}", requester_id, receiver_id, e.what());
                 return false;

@@ -6,6 +6,8 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <thread>
+#include <chrono>
 #include "spdlog.hpp"
 
 namespace MicroChat {
@@ -21,36 +23,57 @@ class EtcdClientRegistry {
 public:
     EtcdClientRegistry(const std::string& etcd_host)
         : client_(std::make_shared<etcd::Client>(etcd_host)) {}  
+    EtcdClientRegistry(const EtcdClientRegistry&) = delete;
+    EtcdClientRegistry& operator=(const EtcdClientRegistry&) = delete;
+    EtcdClientRegistry(EtcdClientRegistry&&) = default;
+    EtcdClientRegistry& operator=(EtcdClientRegistry&&) = default;
     ~EtcdClientRegistry() {
         unregister_service();
     }
-    bool register_service(const std::string& key, const std::string& value, int ttl = 3)
+    bool register_service(const std::string& key, const std::string& value, int ttl = 30)
     {
-        // 创建租约并保持存活shared_ptr
-        auto lease_resp = client_->leasekeepalive(ttl).get();
-        if (!lease_resp) {
-            LOG_ERROR("Failed to keep alive lease");
-            return false;
+        constexpr int kMaxAttempts = 15;
+        constexpr auto kRetryDelay = std::chrono::seconds(1);
+
+        for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+            try {
+                auto lease_resp = client_->leasekeepalive(ttl).get();
+                if (!lease_resp) {
+                    LOG_WARN("Failed to keep alive lease, attempt {}/{}", attempt, kMaxAttempts);
+                } else {
+                    auto lease_id = lease_resp->Lease();
+                    auto put_resp = client_->put(key, value, lease_id).get();
+                    if (put_resp.is_ok()) {
+                        lease_id_ = lease_id;
+                        keep_alive_ = lease_resp;
+                        LOG_INFO("Service registered to etcd successfully: {} -> {}", key, value);
+                        return true;
+                    }
+                    try { lease_resp->Cancel(); } catch (...) {}
+                    LOG_WARN("Failed to register service, attempt {}/{}: {}", attempt, kMaxAttempts, put_resp.error_message());
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Exception while registering service, attempt {}/{}: {}", attempt, kMaxAttempts, e.what());
+            }
+
+            std::this_thread::sleep_for(kRetryDelay);
         }
-        lease_id_ = lease_resp->Lease();
-        keep_alive_ = lease_resp;
-        auto put_resp = client_->put(key, value, lease_id_).get();
-        if(put_resp.is_ok() == false) {
-            LOG_ERROR("Failed to register service : {}", put_resp.error_message());
-            return false;
-        }
-       return true;
+
+        LOG_ERROR("Failed to register service after retries: {} -> {}", key, value);
+        return false;
     }
     void unregister_service() {
         if (keep_alive_) {
+            LOG_INFO("Unregister service lease from etcd: {}", lease_id_);
             try { keep_alive_->Cancel(); } catch(...) {}
             keep_alive_.reset();
+            lease_id_ = 0;
         }
     }
 private:
     std::shared_ptr<etcd::Client> client_;
     std::shared_ptr<etcd::KeepAlive> keep_alive_ = nullptr;
-    uint64_t lease_id_;
+    uint64_t lease_id_ = 0;
 };
 
 
@@ -64,6 +87,10 @@ private:
 class EtcdClientfinder {
 public:
     using NotifyCallback = std::function<void(std::string, std::string)>;  
+    EtcdClientfinder(const EtcdClientfinder&) = delete;
+    EtcdClientfinder& operator=(const EtcdClientfinder&) = delete;
+    EtcdClientfinder(EtcdClientfinder&&) = default;
+    EtcdClientfinder& operator=(EtcdClientfinder&&) = default;
     ~EtcdClientfinder() {  
         stop();
     }

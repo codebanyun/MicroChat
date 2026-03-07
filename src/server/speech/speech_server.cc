@@ -31,7 +31,7 @@ int main(int argc , char* argv[])
 
     // 2) 注册到 etcd（service_name 用 base_service + instance_name，service_host 用 access_host）
     std::string service_name = FLAGS_base_service + FLAGS_instance_name;
-    factory.make_etcd_registry(FLAGS_registry_host, service_name, FLAGS_access_host, 3);
+    factory.make_etcd_registry(FLAGS_registry_host, service_name, FLAGS_access_host, 30);
 
     // 3) 启动 brpc 服务
     factory.make_brpc_server(static_cast<uint16_t>(FLAGS_listen_port),

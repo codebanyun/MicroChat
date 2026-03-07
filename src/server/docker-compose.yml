@@ -1,0 +1,250 @@
+services:
+  etcd: 
+    image: quay.io/coreos/etcd:v3.5.10
+    container_name: etcd-service
+    environment:
+      - ETCD_NAME=etcd-n1
+      - ETCD_DATA_DIR=/var/lib/etcd
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    volumes:
+      - ./data/etcd_data:/var/lib/etcd
+    ports:
+      - "2379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: always
+  mysql:
+    image: mysql:8.4.7
+    container_name: mysql-service
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql123
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d/
+      - ./data/mysql:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "-uroot", "-pmysql123", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: always
+  redis:
+    image: redis:7.0.15
+    container_name: redis-service
+    volumes:
+      - ./data/redis:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: always
+  elasticsearch:
+    image: microchat/elasticsearch-ik:7.17.21
+    container_name: elasticsearch-service
+    environment:
+      - "discovery.type=single-node"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"  # 限制内存，避免OOM
+      - "TAKE_FILE_OWNERSHIP=true"        # 自动赋权
+    volumes:
+      - ./data/elasticsearch:/usr/share/elasticsearch/data:rw
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: always
+  rabbitmq:
+    image: rabbitmq:3.12.1
+    container_name: rabbitmq-service1
+    environment:
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: rmq123
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq:rw
+    ports:
+      - "5672:5672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: always
+
+  file_server:
+    build: ./file  # 从./file目录的Dockerfile构建镜像
+    # image: server-file_server  # 若build成功，可注释/删除这行
+    container_name: file_server-service1
+    volumes:
+      - ./conf/file_server.conf:/app/MicroChat/config/file_server.conf  # 挂载配置文件
+      - ./data/file_server/logs:/app/MicroChat/logs  # 挂载日志目录
+      - ./data/file_server/data:/app/MicroChat/data  # 挂载业务数据目录
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh  # 挂载启动脚本
+    environment:
+      STARTUP_DELAY: "180"
+    ports:
+      - "10002:10002"  
+    restart: always
+    entrypoint: 
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379", "-c", "/app/MicroChat/bin/file_server -flagfile=/app/MicroChat/config/file_server.conf"]
+    depends_on:
+      etcd:
+        condition: service_healthy
+    
+  friend_server:
+    build: ./friend
+    #image: file-server:v1
+    container_name: friend_server-service1
+    volumes:
+      - ./conf/friend_server.conf:/app/MicroChat/config/friend_server.conf
+      - ./data/friend_server/logs:/app/MicroChat/logs
+      - ./data/friend_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "300"
+    ports:
+      - "10006:10006"
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379,mysql:3306,elasticsearch:9200", "-c", "/app/MicroChat/bin/friend_server -flagfile=/app/MicroChat/config/friend_server.conf"]  
+    
+  gateway_server:
+    build: ./gateway
+    #image: file-server:v1
+    container_name: gateway_server-service1
+    volumes:
+      - ./conf/gateway_server.conf:/app/MicroChat/config/gateway_server.conf
+      - ./data/gateway_server/logs:/app/MicroChat/logs
+      - ./data/gateway_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "180"
+    ports:
+      - 9000:9000
+      - 9001:9001
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379,redis:6379", "-c", "/app/MicroChat/bin/gateway_server -flagfile=/app/MicroChat/config/gateway_server.conf"]
+
+  message_server:
+    build: ./message
+    #image: file-server:v1
+    container_name: message_server-service1
+    volumes:
+      - ./conf/message_server.conf:/app/MicroChat/config/message_server.conf
+      - ./data/message_server/logs:/app/MicroChat/logs
+      - ./data/message_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "240"
+    ports:
+      - "10005:10005"
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379,mysql:3306,elasticsearch:9200,rabbitmq:5672", "-c", "/app/MicroChat/bin/message_server -flagfile=/app/MicroChat/config/message_server.conf"]
+  
+  speech_server:
+    build: ./speech
+    #image: file-server:v1
+    container_name: speech_server-service1
+    volumes:
+      - ./conf/speech_server.conf:/app/MicroChat/config/speech_server.conf
+      - ./data/speech_server/logs:/app/MicroChat/logs
+      - ./data/speech_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "300"
+    ports:
+      - "10001:10001"
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379", "-c", "/app/MicroChat/bin/speech_server -flagfile=/app/MicroChat/config/speech_server.conf"]
+
+  forward_server:
+    build: ./forward
+    #image: file-server:v1
+    container_name: forward_server-service1
+    volumes:
+      - ./conf/forward_server.conf:/app/MicroChat/config/forward_server.conf
+      - ./data/forward_server/logs:/app/MicroChat/logs
+      - ./data/forward_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "240"
+    ports:
+      - "10004:10004"
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379,mysql:3306,rabbitmq:5672", "-c", "/app/MicroChat/bin/forward_server -flagfile=/app/MicroChat/config/forward_server.conf"]
+  user_server:
+    build: ./user
+    #image: file-server:v1
+    container_name: user_server-service1
+    volumes:
+      - ./conf/user_server.conf:/app/MicroChat/config/user_server.conf
+      - ./data/user_server/logs:/app/MicroChat/logs
+      - ./data/user_server/data:/app/MicroChat/data
+      - ./entrypoint.sh:/app/MicroChat/bin/entrypoint.sh
+    environment:
+      STARTUP_DELAY: "180"
+    ports:
+      - "10003:10003"
+    restart: always
+    depends_on:
+      etcd:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    entrypoint:
+      ["/app/MicroChat/bin/entrypoint.sh", "-t", "etcd:2379,mysql:3306,redis:6379,elasticsearch:9200", "-c", "/app/MicroChat/bin/user_server -flagfile=/app/MicroChat/config/user_server.conf"]
