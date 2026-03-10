@@ -9,8 +9,6 @@ message UserRegisterReq {
     string request_id = 1;
     string nickname = 2;
     string password = 3;
-    optional string verify_code_id = 4; //客户端实现了本地验证，该字段不再需要
-    optional string verify_code = 5;//客户端实现了本地验证，该字段不再需要
 }
 message UserRegisterRsp {
     string request_id = 1;
@@ -24,8 +22,6 @@ message UserLoginReq {
     string request_id = 1;
     string nickname = 2;
     string password = 3;
-    optional string verify_code_id = 4;
-    optional string verify_code = 5;
 }
 message UserLoginRsp {
     string request_id = 1;

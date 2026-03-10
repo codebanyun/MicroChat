@@ -5,7 +5,7 @@
 #include "redis_manager.hpp"
 #include "connection.hpp"
 #include "utils.hpp"
-#include "httplib.h"
+#include "http.hpp"
 #include <cstddef>
 
 #include "base.pb.h"
@@ -89,6 +89,7 @@ namespace MicroChat {
                         {"Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With"},
                         {"Access-Control-Max-Age", "86400"}
                     });
+                    //处理预检请求，直接返回204响应
                     http_server_.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
                         if (req.method == "OPTIONS") {
                             res.status = 204;
