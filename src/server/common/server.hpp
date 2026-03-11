@@ -508,6 +508,7 @@ private:
     }
     static int CreateTimerfd()
     {
+         // 创建 timerfd（使用单调时间 CLOCK_MONOTONIC，不受系统时间修改影响）
         int timefd = timerfd_create(CLOCK_MONOTONIC , 0);
         if(timefd < 0)
         {
@@ -1063,7 +1064,7 @@ public:
         _channel.SetWriteCallback(std::bind(&Connection::HandleWrite, this));
         _channel.SetErrorCallback(std::bind(&Connection::HandleError, this));
     }
-    ~Connection(){DBG_LOG("REALEADE CONNECTION%p" , this);}
+    ~Connection(){DBG_LOG("RELEASE CONNECTION%p" , this);}
     int Fd() {return _sockfd ;}
     int Id(){return _conn_id;}
     bool Connected(){return _statu == ConnStatu::CONNECTED;}

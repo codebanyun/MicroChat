@@ -277,7 +277,7 @@ private:
                        [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
         request_.path = url_decode(matches[2].str(), false);
         request_.version = matches[4].str();
-        if (matches.size() > 3) {
+        if (!matches[3].str().empty()) {
             split_query(matches[3].str(), request_);
         }
         return true;
