@@ -132,14 +132,22 @@ namespace MicroChat{
             return true;
         }
         //搜索消息
-        std::vector<Message> search(const std::string &session_id, const std::string &key){
+        std::vector<Message> search(const std::string &session_id,
+                                    const std::string &key,
+                                    bool *success = nullptr){
             std::vector<Message> messages;
+            if (success) {
+                *success = true;
+            }
             Json::Value result = ESSearch(client_, "message")
                     .append_must_term("session_id", session_id)
                     .append_must_match("content", key)
                     .search();
             if(result.isArray() == false){
                 LOG_ERROR("ES搜索消息结果格式错误！");
+                if (success) {
+                    *success = false;
+                }
                 return messages;
             }
             if(result.size() == 0){

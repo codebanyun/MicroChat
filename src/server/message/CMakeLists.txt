@@ -22,7 +22,7 @@ foreach(proto_file ${proto_files})
 endforeach()
 
 set(odb_path ${CMAKE_CURRENT_SOURCE_DIR}/../odb)
-set(odb_files message.hxx)
+set(odb_files message.hxx message_outbox.hxx)
 set(odb_hxx "")
 set(odb_cxx "")
 set(odb_srcs "")

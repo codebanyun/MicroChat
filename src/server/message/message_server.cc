@@ -34,6 +34,14 @@ DEFINE_string(mq_host, "127.0.0.1:5672", "消息队列服务器访问地址");
 DEFINE_string(mq_msg_exchange, "msg_exchange", "持久化消息的发布交换机名称");
 DEFINE_string(mq_msg_queue, "msg_queue", "持久化消息的发布队列名称");
 DEFINE_string(mq_msg_binding_key, "msg_queue", "持久化消息的发布队列名称");
+DEFINE_string(mq_retry_exchange, "msg_retry_exchange", "消息重试交换机名称");
+DEFINE_string(mq_retry_queue, "msg_retry_queue", "消息重试队列名称");
+DEFINE_string(mq_retry_binding_key, "msg_retry_queue", "消息重试绑定键");
+DEFINE_string(mq_dead_exchange, "msg_dead_exchange", "消息死信交换机名称");
+DEFINE_string(mq_dead_queue, "msg_dead_queue", "消息死信队列名称");
+DEFINE_string(mq_dead_binding_key, "msg_dead_queue", "消息死信绑定键");
+DEFINE_int32(mq_retry_delay_ms, 10000, "消息重试延迟毫秒");
+DEFINE_int32(mq_max_retry_count, 3, "消息最大重试次数");
 
 int main(int argc, char *argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -60,7 +68,15 @@ int main(int argc, char *argv[]) {
         FLAGS_mq_host,
         FLAGS_mq_msg_exchange,
         FLAGS_mq_msg_queue,
-        FLAGS_mq_msg_binding_key)){
+        FLAGS_mq_msg_binding_key,
+        FLAGS_mq_retry_exchange,
+        FLAGS_mq_retry_queue,
+        FLAGS_mq_retry_binding_key,
+        FLAGS_mq_dead_exchange,
+        FLAGS_mq_dead_queue,
+        FLAGS_mq_dead_binding_key,
+        FLAGS_mq_retry_delay_ms,
+        FLAGS_mq_max_retry_count)){
         LOG_ERROR("Failed to create RabbitMQ client");
         return -1;
     }

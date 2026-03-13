@@ -260,8 +260,13 @@ namespace MicroChat {
                 LOG_WARN("消息搜索失败，搜索关键词不能为空");
                 return;
             }
-            //2. 调用Elasticsearch进行消息搜索
-            std::vector<Message> messages = es_manager_->search(chat_session_id, search_key);
+            //2. 优先调用Elasticsearch进行消息搜索，失败时降级到MySQL
+            bool es_ok = true;
+            std::vector<Message> messages = es_manager_->search(chat_session_id, search_key, &es_ok);
+            if (!es_ok) {
+                LOG_WARN("ES搜索失败，降级到MySQL检索，会话ID：{}，搜索关键词：{}", chat_session_id, search_key);
+                messages = message_table_->searchByKeyword(chat_session_id, search_key);
+            }
             if(messages.empty()) {  
                 LOG_DEBUG("消息搜索无结果，会话ID：{}，搜索关键词：{}", chat_session_id, search_key);
                 response->set_request_id(request_id);
@@ -296,14 +301,14 @@ namespace MicroChat {
                 msg_info->mutable_message()->mutable_string_message()->set_content(msg.getContent());
             }
         }
-        //设置回调函数，用于获取rabbitmq消息后存入mysql数据库，文本消息存入es
-        void message_callback(const char* body , size_t len) {
+        //设置回调函数，用于消费异步消息并同步ES/文件服务
+        bool message_callback(const char* body , size_t len) {
             //1. 解析消息内容，提取消息信息
             MessageInfo message;
             bool ret = message.ParseFromArray(body, len);
             if(!ret) {
                 LOG_ERROR("解析RabbitMQ消息失败，消息内容：{}", std::string(body, len));
-                return;
+                return false;
             }
             //2. 根据消息类型做出不同处理
             std::string file_id, file_name, content;
@@ -316,6 +321,7 @@ namespace MicroChat {
                         message.sender().user_id(), message.message().message_type(), boost::posix_time::from_time_t(message.timestamp()), content, {}, {}, {}));
                     if(!ret) {
                         LOG_ERROR("向Elasticsearch索引 message 添加消息信息失败，消息ID：{}", message.message_id());
+                        return false;
                     } else {
                         LOG_DEBUG("向Elasticsearch索引 message 添加消息信息成功，消息ID：{}", message.message_id());
                     }
@@ -327,9 +333,14 @@ namespace MicroChat {
                     ret = _PutFile(message.message_id(), "", msg.image_content(), msg.image_content().size(), file_id);
                     if(!ret) {
                         LOG_ERROR("调用文件服务上传图片失败，消息ID：{}", message.message_id());
-                        return;
+                        return false;
                     } else {
                         LOG_DEBUG("调用文件服务上传图片成功，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                    }
+                    ret = message_table_->updateFileInfo(message.message_id(), file_id, "", 0);
+                    if (!ret) {
+                        LOG_ERROR("更新MySQL图片文件信息失败，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                        return false;
                     }
                     break;
                 }
@@ -341,9 +352,14 @@ namespace MicroChat {
                     ret = _PutFile(message.message_id(), file_name, msg.file_contents(), msg.file_contents().size(), file_id);
                     if(!ret) {
                         LOG_ERROR("调用文件服务上传文件失败，消息ID：{}", message.message_id());
-                        return;
+                        return false;
                     } else {
                         LOG_DEBUG("调用文件服务上传文件成功，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                    }
+                    ret = message_table_->updateFileInfo(message.message_id(), file_id, file_name, static_cast<unsigned int>(file_size));
+                    if (!ret) {
+                        LOG_ERROR("更新MySQL文件信息失败，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                        return false;
                     }
                     break;
                 }
@@ -353,25 +369,22 @@ namespace MicroChat {
                     ret = _PutFile(message.message_id(), "", msg.file_contents(), msg.file_contents().size(), file_id);
                     if(!ret) {
                         LOG_ERROR("调用文件服务上传语音失败，消息ID：{}", message.message_id());
-                        return;
+                        return false;
                     } else {
                         LOG_DEBUG("调用文件服务上传语音成功，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                    }
+                    ret = message_table_->updateFileInfo(message.message_id(), file_id, "", 0);
+                    if (!ret) {
+                        LOG_ERROR("更新MySQL语音文件信息失败，消息ID：{}，文件ID：{}", message.message_id(), file_id);
+                        return false;
                     }
                     break;
                 }
                 default:
                     LOG_WARN("未知的消息类型，消息ID：{}，消息类型：{}", message.message_id(), message.message().message_type());
-                    return;
+                    return false;
             }
-            //3. 将消息信息存入mysql数据库
-            auto msg = std::make_shared<Message>(message.message_id(), message.chat_session_id(), message.sender().user_id(), (unsigned char)message.message().message_type(), boost::posix_time::from_time_t(message.timestamp()), content, file_id, file_name, (unsigned int)file_size);
-            ret = message_table_->insert(msg);
-            if(!ret) {
-                LOG_ERROR("向MySQL数据库中插入消息信息失败，消息ID：{}", message.message_id());
-                return;
-            } else {
-                LOG_DEBUG("向MySQL数据库中插入消息信息成功，消息ID：{}", message.message_id());
-            }
+            return true;
         }
     private:
         //调用用户服务获取用户信息
@@ -551,7 +564,15 @@ namespace MicroChat {
             const std::string &host,
             const std::string &exchange_name,
             const std::string &queue_name,
-            const std::string &binding_key) {
+            const std::string &binding_key,
+            const std::string &retry_exchange_name,
+            const std::string &retry_queue_name,
+            const std::string &retry_binding_key,
+            const std::string &dead_exchange_name,
+            const std::string &dead_queue_name,
+            const std::string &dead_binding_key,
+            uint32_t retry_delay_ms,
+            uint32_t max_retry_count) {
             exchange_name_ = exchange_name;
             queue_name_ = queue_name;
             rabbitmq_client_ = std::make_shared<RabbitMQClient>(user, passwd, host);
@@ -559,7 +580,18 @@ namespace MicroChat {
                 LOG_ERROR("Failed to create RabbitMQClient");
                 return false;
             }
-            rabbitmq_client_->declareComponents(exchange_name, queue_name, binding_key);
+            rabbitmq_client_->declareComponentsWithRetry(
+                exchange_name,
+                queue_name,
+                binding_key,
+                retry_exchange_name,
+                retry_queue_name,
+                retry_binding_key,
+                dead_exchange_name,
+                dead_queue_name,
+                dead_binding_key,
+                retry_delay_ms,
+                max_retry_count);
             return true;
         }
         // 构造rpc服务器
@@ -587,7 +619,7 @@ namespace MicroChat {
                 return false;
             }
             rabbitmq_client_->consumeMessage(queue_name_, [message_service_impl](const char* body, size_t len) {
-                message_service_impl->message_callback(body, len);
+                return message_service_impl->message_callback(body, len);
             });
             return true;
         }

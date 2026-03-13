@@ -3,12 +3,17 @@
 #include <butil/logging.h>
 #include <cctype>
 #include <ctime>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include "etcd.hpp"     // 服务注册模块封装
 #include "spdlog.hpp"   // 日志模块封装
 #include "utils.hpp"    // 基础工具接口
 #include "channel.hpp"  // 信道管理模块封装
 #include "rabbitmq.hpp"  // RabbitMQ模块封装
 #include "mysql_chat_session_member.hpp"  // mysql数据管理客户端封装
+#include "mysql_message.hpp"
+#include "mysql_message_outbox.hpp"
 #include "base.pb.h"  // protobuf框架代码
 #include "user.pb.h"  // protobuf框架代码
 #include "forward.pb.h"  // protobuf框架代码
@@ -25,11 +30,26 @@ namespace MicroChat {
             const std::string &routing_key)
             : rabbitmq_client_(rabbitmq_client),
               mysql_chat_session_member_(std::make_shared<ChatSessionMemberTable>(mysql_client)),
+                            mysql_message_table_(std::make_shared<MessageTable>(mysql_client)),
+              mysql_outbox_table_(std::make_shared<MessageOutboxTable>(mysql_client)),
               service_manager_(channel_manager),
               user_service_name_(user_service_name),
               exchange_name_(exchange_name),
-              routing_key_(routing_key) {}
-        ~MsgForwardServiceImpl() override {}
+              routing_key_(routing_key),
+              running_(true) {
+            retry_thread_ = std::thread([this]() {
+                while (running_) {
+                    this->process_outbox_events();
+                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                }
+            });
+        }
+        ~MsgForwardServiceImpl() override {
+            running_ = false;
+            if (retry_thread_.joinable()) {
+                retry_thread_.join();
+            }
+        }
         void GetTransmitTarget(google::protobuf::RpcController* controller,
                             const ::MicroChat::NewMessageReq* request,
                             ::MicroChat::GetTransmitTargetRsp* response,
@@ -85,15 +105,69 @@ namespace MicroChat {
                 LOG_WARN("会话成员列表为空，无法转发消息，会话ID：{}", chat_session_id);
                 return; 
             }
-            //4. 将消息发送到RabbitMQ交换机
+            //4. 先将消息主事实落库到MySQL
+            std::string persist_content;
+            std::string persist_file_name;
+            unsigned int persist_file_size = 0;
+            switch (content.message_type()) {
+                case MessageType::STRING:
+                    persist_content = content.string_message().content();
+                    break;
+                case MessageType::FILE:
+                    persist_file_name = content.file_message().file_name();
+                    persist_file_size = static_cast<unsigned int>(content.file_message().file_size());
+                    break;
+                case MessageType::IMAGE:
+                case MessageType::SPEECH:
+                    break;
+                default:
+                    err_response(request_id, "未知消息类型");
+                    LOG_WARN("转发消息失败，未知消息类型，消息ID：{}", msg_info.message_id());
+                    return;
+            }
+            auto message_record = std::make_shared<Message>(
+                msg_info.message_id(),
+                msg_info.chat_session_id(),
+                msg_info.sender().user_id(),
+                static_cast<unsigned char>(content.message_type()),
+                boost::posix_time::from_time_t(msg_info.timestamp()),
+                persist_content,
+                std::string(),
+                persist_file_name,
+                persist_file_size);
+            auto now = boost::posix_time::second_clock::universal_time();
+            auto outbox_event = std::make_shared<MessageOutbox>(
+                UUID(),
+                msg_info.message_id(),
+                "mq",
+                msg_info.SerializeAsString(),
+                static_cast<unsigned char>(OutboxStatus::PENDING),
+                0,
+                now);
+            bool persist_result = mysql_message_table_->insertWithOutbox(message_record, outbox_event);
+            if (!persist_result) {
+                err_response(request_id, "消息入库失败");
+                LOG_ERROR("消息入库失败，消息ID：{}，会话ID：{}", msg_info.message_id(), chat_session_id);
+                return;
+            }
+            //5. 入库成功后，将消息发送到RabbitMQ交换机
             bool publish_result = rabbitmq_client_->publichMessage(
                 exchange_name_, routing_key_, msg_info.SerializeAsString());
             if (!publish_result) {
-                err_response(request_id, "发布转发消息到RabbitMQ失败");
-                LOG_ERROR("发布转发消息到RabbitMQ失败");
-                return;
+                LOG_ERROR("发布转发消息到RabbitMQ失败，转入Outbox补偿，消息ID：{}", msg_info.message_id());
+                auto next_retry = boost::posix_time::second_clock::universal_time() + boost::posix_time::seconds(10);
+                mysql_outbox_table_->updateStatus(outbox_event->eventId(),
+                                                  static_cast<unsigned char>(OutboxStatus::FAILED),
+                                                  1,
+                                                  next_retry,
+                                                  "mq publish failed");
+            } else {
+                mysql_outbox_table_->updateStatus(outbox_event->eventId(),
+                                                static_cast<unsigned char>(OutboxStatus::SUCCESS),
+                                                0,
+                                                boost::posix_time::second_clock::universal_time());
             }
-            //5. 返回成功响应，包含转发目标用户列表
+            //6. 返回成功响应，包含转发目标用户列表
             response->set_request_id(request_id);
             response->set_success(true);
             response->mutable_message()->CopyFrom(msg_info);
@@ -104,13 +178,51 @@ namespace MicroChat {
             }
             LOG_INFO("消息转发成功，消息ID：{}，会话ID：{}", msg_info.message_id(), chat_session_id);
         }
+        void process_outbox_events() {
+            auto now = boost::posix_time::second_clock::universal_time();
+            auto pending_events = mysql_outbox_table_->fetchReadyEvents(
+                static_cast<unsigned char>(OutboxStatus::PENDING), now, 50);
+            auto failed_events = mysql_outbox_table_->fetchReadyEvents(
+                static_cast<unsigned char>(OutboxStatus::FAILED), now, 50);
+            pending_events.insert(pending_events.end(), failed_events.begin(), failed_events.end());
+
+            for (const auto &event : pending_events) {
+                bool ok = rabbitmq_client_->publichMessage(exchange_name_, routing_key_, event.payload());
+                if (ok) {
+                    mysql_outbox_table_->updateStatus(event.eventId(),
+                                                      static_cast<unsigned char>(OutboxStatus::SUCCESS),
+                                                      event.retryCount(),
+                                                      now);
+                    continue;
+                }
+                unsigned int next_retry_count = event.retryCount() + 1;
+                if (next_retry_count >= 3) {
+                    mysql_outbox_table_->updateStatus(event.eventId(),
+                                                      static_cast<unsigned char>(OutboxStatus::DEAD),
+                                                      next_retry_count,
+                                                      now,
+                                                      "mq publish failed after max retries");
+                    continue;
+                }
+                auto next_retry = now + boost::posix_time::seconds(10 * next_retry_count);
+                mysql_outbox_table_->updateStatus(event.eventId(),
+                                                  static_cast<unsigned char>(OutboxStatus::FAILED),
+                                                  next_retry_count,
+                                                  next_retry,
+                                                  "mq publish failed");
+            }
+        }
     private:
         std::string user_service_name_;//用户服务名称
         std::string exchange_name_; // 交换机名称
         std::string routing_key_; // 路由键
         std::shared_ptr<RabbitMQClient> rabbitmq_client_; // RabbitMQ客户端
         std::shared_ptr<ChatSessionMemberTable> mysql_chat_session_member_; // mysql聊天会话成员表
+        std::shared_ptr<MessageTable> mysql_message_table_;
+        std::shared_ptr<MessageOutboxTable> mysql_outbox_table_;
         std::shared_ptr<ServiceManager> service_manager_; //服务信道管理器
+        std::atomic_bool running_;
+        std::thread retry_thread_;
     };
     class ForwardServer {
     public:

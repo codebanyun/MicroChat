@@ -21,7 +21,7 @@ foreach(proto_file ${proto_files})
 endforeach()
 
 set(odb_path ${CMAKE_CURRENT_SOURCE_DIR}/../odb)
-set(odb_files chat_session_member.hxx)
+set(odb_files chat_session_member.hxx message.hxx message_outbox.hxx)
 set(odb_hxx "")
 set(odb_cxx "")
 set(odb_srcs "")
@@ -31,7 +31,7 @@ foreach(odb_file ${odb_files})
     
     add_custom_command(
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${odb_cxx_file} ${CMAKE_CURRENT_BINARY_DIR}/${odb_hxx_file}
-        COMMAND odb -d mysql --std c++11 --generate-query --generate-schema  ${odb_path}/${odb_file}
+        COMMAND odb -d mysql --std c++11 --generate-query --generate-schema --profile boost/date-time ${odb_path}/${odb_file}
         DEPENDS ${odb_path}/${odb_file}
         COMMENT "生成ODB框架代码文件: ${odb_file}"
     )
